@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  KITCHEN
+  SERVICE
+}
+
+enum OrderStatus {
+  PENDING
+  ACCEPTED
+  PREPARING
+  READY
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+model Hotel {
+  id         String     @id @default(uuid())
+  name       String
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  categories Category[]
+  menuItems  MenuItem[]
+  orders     Order[]
+  users      User[]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  hotelId      String
+  email        String
+  passwordHash String
+  role         UserRole
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  hotel        Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  @@unique([hotelId, email])
+  @@index([hotelId])
+}
+
+model Category {
+  id           String     @id @default(uuid())
+  hotelId      String
+  name         String
+  nameAm       String?
+  nameOr       String?
+  description  String?
+  displayOrder Int        @default(0)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  hotel        Hotel      @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  menuItems    MenuItem[]
+
+  @@index([hotelId, isActive])
+}
+
+model MenuItem {
+  id           String      @id @default(uuid())
+  hotelId      String
+  categoryId   String
+  name         String
+  nameAm       String?
+  nameOr       String?
+  description  String?
+  descriptionAm String?
+  descriptionOr String?
+  price        Decimal     @db.Decimal(10, 2)
+  imageUrl     String?
+  isAvailable  Boolean     @default(true)
+  displayOrder Int         @default(0)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  hotel        Hotel       @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  category     Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  orderItems   OrderItem[]
+
+  @@index([hotelId, isAvailable])
+  @@index([categoryId])
+}
+
+model Order {
+  id            String      @id @default(uuid())
+  hotelId       String
+  reference     String      @unique
+  roomOrTable   String
+  customerName  String?
+  customerNotes String?
+  total         Decimal     @db.Decimal(10, 2)
+  status        OrderStatus @default(PENDING)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  hotel         Hotel       @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  items         OrderItem[]
+
+  @@index([hotelId, status])
+  @@index([hotelId, createdAt])
+}
+
+model OrderItem {
+  id         String   @id @default(uuid())
+  orderId    String
+  menuItemId String
+  itemName   String
+  unitPrice  Decimal  @db.Decimal(10, 2)
+  quantity   Int
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([menuItemId])
+}
