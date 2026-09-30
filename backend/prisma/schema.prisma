@@ -23,6 +23,12 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
 model Hotel {
   id         String     @id @default(uuid())
   name       String
@@ -32,6 +38,23 @@ model Hotel {
   menuItems  MenuItem[]
   orders     Order[]
   users      User[]
+  tables     Table[]
+  payments   Payment[]
+}
+
+model Table {
+  id        String   @id @default(uuid())
+  hotelId   String
+  number    String
+  label     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  orders    Order[]
+
+  @@unique([hotelId, number])
+  @@index([hotelId, isActive])
 }
 
 model User {
@@ -94,17 +117,42 @@ model Order {
   hotelId       String
   reference     String      @unique
   roomOrTable   String
+  tableId       String?
   customerName  String?
+  customerPhone String?
   customerNotes String?
   total         Decimal     @db.Decimal(10, 2)
   status        OrderStatus @default(PENDING)
+  paymentStatus PaymentStatus @default(PENDING)
+  paymentReference String?  @unique
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   hotel         Hotel       @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  table         Table?      @relation(fields: [tableId], references: [id], onDelete: SetNull)
   items         OrderItem[]
+  payments      Payment[]
 
   @@index([hotelId, status])
   @@index([hotelId, createdAt])
+}
+
+model Payment {
+  id          String   @id @default(uuid())
+  hotelId     String
+  orderId     String
+  provider    String
+  reference   String   @unique
+  amount      Decimal  @db.Decimal(10, 2)
+  currency    String   @default("ETB")
+  status      PaymentStatus @default(PENDING)
+  rawResponse Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([hotelId, status])
+  @@index([orderId])
 }
 
 model OrderItem {

@@ -12,15 +12,33 @@ function jwtSecret() {
 }
 
 export function hasAdminSession(request: Request) {
+  return getSessionRole(request) === 'ADMIN'
+}
+
+export function getSessionRole(request: Request) {
   const token = request.cookies?.[sessionCookie]
   if (!token) return false
 
   try {
     const payload = jwt.verify(token, jwtSecret())
-    return typeof payload === 'object' && payload.role === 'ADMIN'
+    return typeof payload === 'object' && typeof payload.role === 'string' ? payload.role : false
   } catch {
     return false
   }
+
+}
+
+export async function loginStaff(email: string, password: string, response: Response) {
+  const user = await prisma.user.findFirst({ where: { email, role: { in: ['ADMIN', 'KITCHEN', 'SERVICE'] } } })
+  if (!user || !(await bcrypt.compare(password, user.passwordHash))) return false
+  const token = jwt.sign({ userId: user.id, role: user.role }, jwtSecret(), { expiresIn: '8h' })
+  response.cookie(sessionCookie, token, {
+    httpOnly: true,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 8 * 60 * 60 * 1000,
+  })
+  return true
 }
 
 export async function loginAdmin(email: string, password: string, response: Response) {
@@ -75,5 +93,13 @@ export function requireAdmin(
     return
   }
 
+  next()
+}
+
+export function requireStaff(request: Request, response: Response, next: NextFunction) {
+  if (!getSessionRole(request)) {
+    response.status(401).json({ message: 'Staff login is required.' })
+    return
+  }
   next()
 }

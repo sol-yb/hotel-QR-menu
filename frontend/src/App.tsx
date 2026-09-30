@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import AdminDashboard from './AdminDashboard'
+import KitchenDashboard from './KitchenDashboard'
 import './App.css'
 
 type MenuItem = {
@@ -18,6 +19,7 @@ type MenuItem = {
 
 type MenuResponse = {
   hotelName: string
+  table?: { id: string; number: string; label?: string | null } | null
   categories: {
     id: string
     name: string
@@ -55,6 +57,11 @@ type TranslationSet = {
   emptyCartHelp: string
   total: string
   checkout: string
+  roomOrTable: string
+  customerName: string
+  payNow: string
+  startingPayment: string
+  paymentFailed: string
   language: string
   loadingMenu: string
   menuUnavailable: string
@@ -89,6 +96,11 @@ const translations: Record<LanguageCode, TranslationSet> = {
     emptyCartHelp: 'Add something delicious from the menu.',
     total: 'Total',
     checkout: 'Continue to checkout',
+    roomOrTable: 'Room or table number',
+    customerName: 'Your name',
+    payNow: 'Pay with Chapa',
+    startingPayment: 'Opening secure payment…',
+    paymentFailed: 'Unable to start payment.',
     language: 'Language',
     loadingMenu: 'Loading the latest menu…',
     menuUnavailable: 'The menu is not available right now.',
@@ -121,6 +133,11 @@ const translations: Record<LanguageCode, TranslationSet> = {
     emptyCartHelp: 'ከምናሌው የሚያስፈልግ ነገር ያክሉ።',
     total: 'ጠቅላላ',
     checkout: 'ወደ ክፍያ ይቀጥሉ',
+    roomOrTable: 'የክፍል ወይም የጠረጴዛ ቁጥር',
+    customerName: 'ስምዎ',
+    payNow: 'በChapa ይክፈሉ',
+    startingPayment: 'የክፍያ ገጽ በመክፈት ላይ…',
+    paymentFailed: 'ክፍያ መጀመር አልተቻለም።',
     language: 'ቋንቋ',
     loadingMenu: 'የቅርብ ጊዜ ምናሌ በመጫን ላይ…',
     menuUnavailable: 'ምናሌው አሁን አይገኝም።',
@@ -153,6 +170,11 @@ const translations: Record<LanguageCode, TranslationSet> = {
     emptyCartHelp: 'Menu irraa wanta mi’aawaa addaan kutaa.',
     total: 'Waliigalaa',
     checkout: 'Baasistuu itti fufii',
+    roomOrTable: 'Lakkoofsa kutaa ykn minjaalaa',
+    customerName: 'Maqaa kee',
+    payNow: 'Chapa’n kaffali',
+    startingPayment: 'Kaffaltii nageenya qabu banuu…',
+    paymentFailed: 'Kaffaltii jalqabsiisuu hin dandeenye.',
     language: 'Afaan',
     loadingMenu: 'Menyu haaraa fe’aa jira…',
     menuUnavailable: 'Menyuun yeroo ammaa hin jiru.',
@@ -190,11 +212,35 @@ const directImageUrl = (image?: string | null) => {
   return image
 }
 
+function OrderTracker({ apiUrl }: { apiUrl: string }) {
+  const [reference, setReference] = useState(new URLSearchParams(window.location.search).get('reference') ?? window.location.pathname.split('/')[2] ?? '')
+  const [order, setOrder] = useState<{ reference: string; status: string; paymentStatus: string; total: string; roomOrTable: string } | null>(null)
+  const [error, setError] = useState('')
+  const load = async (event?: FormEvent) => {
+    event?.preventDefault()
+    setError('')
+    try {
+      const response = await fetch(`${apiUrl}/api/orders/${encodeURIComponent(reference.trim())}`)
+      if (!response.ok) throw new Error('Order not found.')
+      setOrder(await response.json())
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to load order.') }
+  }
+  useEffect(() => { if (reference) void load() }, [])
+  return <main className="payment-result"><h1>Track your order</h1><form onSubmit={load}><label>Order reference<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="SYT-..." required /></label><button className="checkout-button" type="submit">Check status</button></form>{error && <p className="status-panel error">{error}</p>}{order && <section className="status-panel"><h2>{order.status}</h2><p>Order {order.reference} · {order.roomOrTable}</p><p>Payment: {order.paymentStatus} · Total: ETB {order.total}</p></section>}</main>
+}
+
 function App() {
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [categories, setCategories] = useState(['all'])
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [cart, setCart] = useState<Record<string, CartEntry>>({})
+  const [cart, setCart] = useState<Record<string, CartEntry>>(() => {
+    try {
+      const saved = window.localStorage.getItem('hotel-menu-cart')
+      return saved ? JSON.parse(saved) as Record<string, CartEntry> : {}
+    } catch {
+      return {}
+    }
+  })
   const [requestedQuantities, setRequestedQuantities] = useState<Record<string, number>>({})
   const [requestedNotes, setRequestedNotes] = useState<Record<string, string>>({})
   const [isCartOpen, setIsCartOpen] = useState(false)
@@ -202,8 +248,25 @@ function App() {
   const [loadError, setLoadError] = useState('')
   const [language, setLanguage] = useState<LanguageCode>('en')
   const [hotelName, setHotelName] = useState('SYT hotel')
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
+  const [roomOrTable, setRoomOrTable] = useState('')
+  const [customerName, setCustomerName] = useState('')
+  const [customerPhone, setCustomerPhone] = useState('')
+  const [customerNotes, setCustomerNotes] = useState('')
+  const [isStartingPayment, setIsStartingPayment] = useState(false)
+  const [paymentError, setPaymentError] = useState('')
+  const [verifiedPaymentStatus, setVerifiedPaymentStatus] = useState<'success' | 'failed' | 'checking'>('checking')
+  const [tableContext, setTableContext] = useState<MenuResponse['table']>(null)
 
   const t = translations[language]
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('hotel-menu-cart', JSON.stringify(cart))
+    } catch {
+      // Storage can be unavailable in private browsing; cart remains in memory.
+    }
+  }, [cart])
 
   useEffect(() => {
     const configuredApiUrl = import.meta.env.VITE_API_URL?.trim()
@@ -211,7 +274,8 @@ function App() {
       ? configuredApiUrl.replace(/\/+$/, '')
       : `${window.location.protocol}//${window.location.hostname}:3100`
 
-    fetch(`${apiUrl}/api/menu`)
+    const tableNumber = new URLSearchParams(window.location.search).get('table')?.trim()
+    fetch(`${apiUrl}/api/menu${tableNumber ? `?table=${encodeURIComponent(tableNumber)}` : ''}`)
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(t.menuUnavailable)
@@ -220,6 +284,8 @@ function App() {
       })
       .then((data) => {
         setHotelName(data.hotelName || 'SYT hotel')
+        setTableContext(data.table ?? null)
+        if (data.table) setRoomOrTable(data.table.label || `Table ${data.table.number}`)
         setSelectedCategory('all')
         const loadedCategories = data.categories.map((category) =>
           localized(language, category.name, category.nameAm, category.nameOr),
@@ -240,6 +306,26 @@ function App() {
       })
       .finally(() => setLoading(false))
   }, [language, t.menuUnavailable, t.unableLoadMenu])
+
+  useEffect(() => {
+    if (window.location.pathname !== '/payment-result') return
+    const reference = new URLSearchParams(window.location.search).get('tx_ref')
+    if (!reference) {
+      setVerifiedPaymentStatus('failed')
+      return
+    }
+    const configuredApiUrl = import.meta.env.VITE_API_URL?.trim()
+    const apiUrl = configuredApiUrl
+      ? configuredApiUrl.replace(/\/+$/, '')
+      : `${window.location.protocol}//${window.location.hostname}:3100`
+    fetch(`${apiUrl}/api/payments/chapa/status/${encodeURIComponent(reference)}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Payment verification failed.')
+        return response.json() as Promise<{ status: 'success' | 'failed' }>
+      })
+      .then((data) => setVerifiedPaymentStatus(data.status))
+      .catch(() => setVerifiedPaymentStatus('failed'))
+  }, [])
 
   const visibleItems = useMemo(
     () =>
@@ -269,6 +355,40 @@ function App() {
     }))
   }
 
+  const startPayment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setPaymentError('')
+    setIsStartingPayment(true)
+    try {
+      const configuredApiUrl = import.meta.env.VITE_API_URL?.trim()
+      const apiUrl = configuredApiUrl
+        ? configuredApiUrl.replace(/\/+$/, '')
+        : `${window.location.protocol}//${window.location.hostname}:3100`
+      const response = await fetch(`${apiUrl}/api/payments/chapa/initialize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomOrTable,
+          tableId: tableContext?.id,
+          customerName,
+          customerPhone,
+          customerNotes,
+          items: cartItems.map((item) => ({
+            id: item.id,
+            quantity: cart[item.id].quantity,
+            note: cart[item.id].note,
+          })),
+        }),
+      })
+      const data = await response.json() as { checkoutUrl?: string; message?: string }
+      if (!response.ok || !data.checkoutUrl) throw new Error(data.message || t.paymentFailed)
+      window.location.assign(data.checkoutUrl)
+    } catch (error: unknown) {
+      setPaymentError(error instanceof Error ? error.message : t.paymentFailed)
+      setIsStartingPayment(false)
+    }
+  }
+
   const changeQuantity = (id: string, change: number) => {
     setCart((current) => {
       const quantity = (current[id]?.quantity ?? 0) + change
@@ -284,6 +404,23 @@ function App() {
 
   if (window.location.pathname === '/admin') {
     return <AdminDashboard />
+  }
+  if (window.location.pathname === '/kitchen') {
+    return <KitchenDashboard />
+  }
+
+  if (window.location.pathname === '/payment-result') {
+    return (
+      <main className="payment-result">
+        <h1>{verifiedPaymentStatus === 'checking' ? 'Verifying payment…' : verifiedPaymentStatus === 'success' ? 'Payment successful' : 'Payment not completed'}</h1>
+        <p>{verifiedPaymentStatus === 'success' ? 'Your order has been confirmed.' : verifiedPaymentStatus === 'checking' ? 'Please wait while we verify your transaction.' : 'Please try again or contact staff.'}</p>
+        <a href="/">Return to menu</a>
+      </main>
+    )
+  }
+
+  if (window.location.pathname === '/track' || window.location.pathname.startsWith('/track/')) {
+    return <OrderTracker apiUrl={import.meta.env.VITE_API_URL?.trim()?.replace(/\/+$/, '') || `${window.location.protocol}//${window.location.hostname}:3100`} />
   }
 
   return (
@@ -444,8 +581,25 @@ function App() {
                   ))}
                 </div>
                 <div className="cart-total"><span>{t.total}</span><strong>{formatPrice(cartTotal)}</strong></div>
-                <button className="checkout-button" type="button">{t.checkout}</button>
+                <button className="outline-button" type="button" onClick={() => setCart({})}>Clear cart</button>
+                <button className="checkout-button" type="button" onClick={() => setIsCheckoutOpen(true)}>{t.checkout}</button>
               </>
+            )}
+            {isCheckoutOpen && (
+              <div className="cart-backdrop" role="presentation" onClick={() => setIsCheckoutOpen(false)}>
+                <form className="cart-panel checkout-form" onSubmit={startPayment} onClick={(event) => event.stopPropagation()}>
+                  <div className="cart-heading">
+                    <div><p className="eyebrow accent">{t.checkout}</p><h2>{formatPrice(cartTotal)}</h2></div>
+                    <button className="close-button" type="button" onClick={() => setIsCheckoutOpen(false)}>×</button>
+                  </div>
+                  <label>{t.roomOrTable}<input value={roomOrTable} onChange={(event) => setRoomOrTable(event.target.value)} placeholder="e.g. Room 204" required readOnly={Boolean(tableContext)} /></label>
+                  <label>{t.customerName}<input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder={t.optional} /></label>
+                  <label>Phone (optional)<input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="+251..." /></label>
+                  <label>{t.note}<input value={customerNotes} onChange={(event) => setCustomerNotes(event.target.value)} placeholder={t.notePlaceholder} /></label>
+                  {paymentError && <p className="status-panel error">{paymentError}</p>}
+                  <button className="checkout-button" type="submit" disabled={isStartingPayment}>{isStartingPayment ? t.startingPayment : t.payNow}</button>
+                </form>
+              </div>
             )}
           </aside>
         </div>

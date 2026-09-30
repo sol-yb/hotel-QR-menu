@@ -59,6 +59,8 @@ type AdminMenuResponse = {
     }[]
   }[]
 }
+type AdminOrder = { id: string; reference: string; roomOrTable: string; total: string; status: string; createdAt: string; items: { itemName: string; quantity: number }[] }
+type Analytics = { orders: number; revenue: string; byStatus: Record<string, number> }
 
 type LanguageCode = 'en' | 'am' | 'or'
 
@@ -390,7 +392,9 @@ const initialCategories: AdminCategory[] = []
 function AdminDashboard() {
   const [categories, setCategories] = useState(initialCategories)
   const [items, setItems] = useState<AdminItem[]>([])
-  const [activeTab, setActiveTab] = useState<'overview' | 'menu'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'menu' | 'orders'>('overview')
+  const [orders, setOrders] = useState<AdminOrder[]>([])
+  const [analytics, setAnalytics] = useState<Analytics | null>(null)
   const [showItemForm, setShowItemForm] = useState(false)
   const [itemName, setItemName] = useState('')
   const [itemCategory, setItemCategory] = useState('')
@@ -454,6 +458,26 @@ function AdminDashboard() {
       })
       .finally(() => setCheckingSession(false))
   }, [])
+
+  const loadOrders = async () => {
+    const [ordersResponse, analyticsResponse] = await Promise.all([
+      fetch(`${apiUrl}/api/admin/orders`, { credentials: 'include' }),
+      fetch(`${apiUrl}/api/admin/analytics/today`, { credentials: 'include' }),
+    ])
+    if (!ordersResponse.ok) throw new Error('Unable to load orders.')
+    setOrders(await ordersResponse.json())
+    if (analyticsResponse.ok) setAnalytics(await analyticsResponse.json())
+  }
+  useEffect(() => {
+    if (!isAuthenticated) return
+    if (activeTab === 'orders') void loadOrders().catch((error: unknown) => window.alert(error instanceof Error ? error.message : 'Unable to load orders.'))
+    else void fetch(`${apiUrl}/api/admin/analytics/today`, { credentials: 'include' }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) setAnalytics(data) })
+  }, [activeTab, isAuthenticated])
+  const updateOrderStatus = async (id: string, status: string) => {
+    const response = await fetch(`${apiUrl}/api/admin/orders/${id}/status`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
+    if (!response.ok) { window.alert('Unable to update order status.'); return }
+    await loadOrders()
+  }
 
   const signIn = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -722,7 +746,7 @@ function AdminDashboard() {
           <button className={activeTab === 'menu' ? 'selected' : ''} type="button" onClick={() => setActiveTab('menu')}>
             <span>☷</span> {t.menu}
           </button>
-          <button type="button" disabled><span>◷</span> {t.orders} <em>{t.comingSoon}</em></button>
+          <button className={activeTab === 'orders' ? 'selected' : ''} type="button" onClick={() => setActiveTab('orders')}><span>◷</span> {t.orders}</button>
           <button type="button" disabled><span>♙</span> {t.team} <em>{t.comingSoon}</em></button>
         </nav>
         <div className="sidebar-bottom">
@@ -735,7 +759,7 @@ function AdminDashboard() {
         <header className="admin-header">
           <div>
             <p className="sidebar-label">{t.adminGreeting}</p>
-            <h1>{activeTab === 'overview' ? t.overview : t.menuManagement}</h1>
+            <h1>{activeTab === 'overview' ? t.overview : activeTab === 'orders' ? t.orders : t.menuManagement}</h1>
           </div>
           <div className="admin-header-actions">
             <div className="language-switcher admin-language-switcher" aria-label={t.language}>
@@ -761,6 +785,7 @@ function AdminDashboard() {
               <div className="stat-card"><span className="stat-icon sage">☷</span><small>{t.menuItems}</small><strong>{items.length}</strong><span className="stat-note">{t.itemsAcross.replace('{count}', String(categories.length))}</span></div>
               <div className="stat-card"><span className="stat-icon gold">◉</span><small>{t.availableNow}</small><strong>{items.filter((item) => item.available).length}</strong><span className="stat-note">{t.availableNowNote}</span></div>
               <div className="stat-card"><span className="stat-icon clay">◫</span><small>{t.categories}</small><strong>{categories.length}</strong><span className="stat-note">{t.categoriesNote}</span></div>
+              {analytics && <div className="stat-card"><span className="stat-icon gold">◉</span><small>Today’s orders</small><strong>{analytics.orders}</strong><span className="stat-note">ETB {analytics.revenue} revenue</span></div>}
             </section>
             <section className="admin-section">
               <div className="section-heading"><div><p className="sidebar-label">{t.quickAccess}</p><h2>{t.manageYourMenu}</h2></div><button className="outline-button" type="button" onClick={() => setActiveTab('menu')}>{t.openMenuManager}</button></div>
@@ -783,6 +808,12 @@ function AdminDashboard() {
               </div>
             </section>
           </>
+        ) : activeTab === 'orders' ? (
+          <section className="admin-section menu-manager">
+            <div className="section-heading"><div><p className="sidebar-label">ORDER OPERATIONS</p><h2>Orders & status</h2></div><button className="outline-button" type="button" onClick={() => void loadOrders()}>Refresh</button></div>
+            {analytics && <div className="stats-grid">{Object.entries(analytics.byStatus).map(([status, count]) => <div className="stat-card" key={status}><small>{status}</small><strong>{count}</strong></div>)}</div>}
+            <div className="item-table">{orders.map((order) => <div className="item-row" key={order.id}><div><strong>{order.reference}</strong><small>{order.roomOrTable} · {order.items.map((item) => `${item.quantity}× ${item.itemName}`).join(', ')}</small></div><strong>ETB {Number(order.total).toFixed(2)}</strong><select value={order.status} onChange={(event) => void updateOrderStatus(order.id, event.target.value)}>{['PENDING','ACCEPTED','PREPARING','READY','COMPLETED','REJECTED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></div>)}</div>
+          </section>
         ) : (
           <section className="admin-section menu-manager">
             <div className="section-heading"><div><p className="sidebar-label">{t.catalogue}</p><h2>{t.menuItemsHeading}</h2></div><button className="primary-button" type="button" onClick={() => setShowItemForm(true)}>{t.addItem}</button></div>

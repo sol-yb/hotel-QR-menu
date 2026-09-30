@@ -126,6 +126,10 @@ async function seed() {
           role: 'ADMIN',
         },
       })
+
+      await prisma.table.createMany({
+        data: [1, 2, 3, 4].map((number) => ({ hotelId: hotel.id, number: String(number), label: `Table ${number}` })),
+      })
       console.log(`Created administrator ${adminEmail}.`)
     }
     return
