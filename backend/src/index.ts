@@ -184,7 +184,11 @@ app.post('/api/payments/chapa/initialize', paymentRateLimit, async (request, res
       ? await prisma.order.findFirst({ where: { reference: existingReference, hotelId: hotel.id, paymentStatus: 'PENDING' }, include: { items: true } })
       : (await createOrder(request.body)).order
     if (!order) { response.status(404).json({ message: 'The order is no longer available for payment.' }); return }
-    const payment = await prisma.payment.create({ data: { hotelId: hotel.id, orderId: order.id, provider: 'CHAPA', reference: order.reference, amount: order.total } })
+    const payment = await prisma.payment.upsert({
+      where: { reference: order.reference },
+      create: { hotelId: hotel.id, orderId: order.id, provider: 'CHAPA', reference: order.reference, amount: order.total },
+      update: { status: 'PENDING', amount: order.total },
+    })
     const chapaResponse = await fetch(`${chapaApiUrl}/transaction/initialize`, { method: 'POST', headers: { Authorization: `Bearer ${chapaSecretKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: Number(order.total).toFixed(2), currency: 'ETB', email: 'guest@hotel-menu.local', first_name: order.customerName || 'Guest', tx_ref: order.reference, callback_url: `${publicApiUrl}/api/payments/chapa/callback`, return_url: `${publicFrontendUrl}/payment-result?tx_ref=${encodeURIComponent(order.reference)}`, customization: { title: hotel.name, description: `Order ${order.reference}` } }) })
     const chapaData = await chapaResponse.json() as { status?: string; message?: string; data?: { checkout_url?: string } }
     if (!chapaResponse.ok || chapaData.status !== 'success' || !chapaData.data?.checkout_url) {

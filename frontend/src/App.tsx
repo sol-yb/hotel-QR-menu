@@ -408,8 +408,9 @@ function App() {
           })),
         }),
       })
-      const data = await response.json() as { reference?: string; message?: string }
-      if (!response.ok || !data.reference) throw new Error(data.message || 'Unable to submit order.')
+      const data = await response.json() as { reference?: string; message?: string | { message?: string } }
+      const message = typeof data.message === 'string' ? data.message : data.message?.message
+      if (!response.ok || !data.reference) throw new Error(message || 'Unable to submit order.')
       setSubmittedOrderReference(data.reference)
     } catch (error: unknown) {
       setPaymentError(error instanceof Error ? error.message : 'Unable to submit order.')
@@ -428,8 +429,9 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderReference: submittedOrderReference }),
       })
-      const data = await response.json() as { checkoutUrl?: string; message?: string }
-      if (!response.ok || !data.checkoutUrl) throw new Error(data.message || t.paymentFailed)
+      const data = await response.json() as { checkoutUrl?: string; message?: string | { message?: string } }
+      const message = typeof data.message === 'string' ? data.message : data.message?.message
+      if (!response.ok || !data.checkoutUrl) throw new Error(message || t.paymentFailed)
       window.location.assign(data.checkoutUrl)
     } catch (error: unknown) {
       setPaymentError(error instanceof Error ? error.message : t.paymentFailed)
@@ -502,6 +504,20 @@ function App() {
               <span aria-hidden="true">🛒</span>
               <span>{t.cart}</span>
               {cartCount > 0 && <b>{cartCount}</b>}
+            </button>
+            <button
+              className="payment-button"
+              type="button"
+              onClick={() => {
+                setIsCartOpen(true)
+                setIsCheckoutOpen(true)
+              }}
+              disabled={cartCount === 0 && !submittedOrderReference}
+              aria-label="Open payment"
+              title={submittedOrderReference ? 'Continue payment' : `Pay ${formatPrice(cartTotal)}`}
+            >
+              <span aria-hidden="true">💳</span>
+              <span>{submittedOrderReference ? 'Pay now' : formatPrice(cartTotal)}</span>
             </button>
           </div>
         </div>

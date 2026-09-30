@@ -135,6 +135,30 @@ footer {
   background: rgba(255, 255, 255, 0.1);
 }
 
+.payment-button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  color: #2c241d;
+  cursor: pointer;
+  border: 1px solid #e6bb83;
+  border-radius: 999px;
+  background: #e6bb83;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.payment-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.payment-button span:first-child {
+  font-size: 16px;
+}
+
 .cart-button b {
   display: grid;
   width: 19px;
@@ -675,6 +699,20 @@ footer {
 }
 
 @media (max-width: 560px) {
+  .header-controls {
+    gap: 6px;
+  }
+
+  .cart-button,
+  .payment-button {
+    padding: 8px 9px;
+  }
+
+  .cart-button > span:not(:first-child),
+  .payment-button > span:not(:first-child) {
+    display: none;
+  }
+
   .menu-intro {
     align-items: start;
     flex-direction: column;
