@@ -24,28 +24,56 @@ export function hasAdminSession(request: Request) {
 }
 
 export async function loginAdmin(email: string, password: string, response: Response) {
-  const user = await prisma.user.findFirst({ where: { email, role: 'ADMIN' } })
-  if (!user || !(await bcrypt.compare(password, user.passwordHash))) return false
+  const user = await prisma.user.findFirst({
+    where: {
+      email,
+      role: 'ADMIN',
+    },
+  })
 
-  const token = jwt.sign({ userId: user.id, role: user.role }, jwtSecret(), { expiresIn: '8h' })
+  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    return false
+  }
+
+  const token = jwt.sign(
+    {
+      userId: user.id,
+      role: user.role,
+    },
+    jwtSecret(),
+    {
+      expiresIn: '8h',
+    }
+  )
+
   response.cookie(sessionCookie, token, {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     secure: process.env.NODE_ENV === 'production',
     maxAge: 8 * 60 * 60 * 1000,
   })
+
   return true
 }
 
-export function requireAdmin(request: Request, response: Response, next: NextFunction) {
+export function requireAdmin(
+  request: Request,
+  response: Response,
+  next: NextFunction
+) {
   if (!request.cookies?.[sessionCookie]) {
-    response.status(401).json({ message: 'Administrator login is required.' })
+    response.status(401).json({
+      message: 'Administrator login is required.',
+    })
     return
   }
 
   if (!hasAdminSession(request)) {
-    response.status(401).json({ message: 'Your administrator session has expired.' })
+    response.status(401).json({
+      message: 'Your administrator session has expired.',
+    })
     return
   }
+
   next()
 }
