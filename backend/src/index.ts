@@ -172,9 +172,18 @@ app.get('/api/orders/:reference', async (request, response) => {
 
 app.post('/api/payments/chapa/initialize', paymentRateLimit, async (request, response) => {
   const chapaSecretKey = process.env.CHAPA_SECRET_KEY
-  if (!chapaSecretKey || !publicApiUrl) { response.status(503).json({ message: 'Online payments are not configured.' }); return }
+  if (!chapaSecretKey || !publicApiUrl) {
+    response.status(503).json({ message: 'Online payments are not configured. Set CHAPA_SECRET_KEY and PUBLIC_API_URL on the backend.' })
+    return
+  }
   try {
-    const { hotel, order } = await createOrder(request.body)
+    const existingReference = typeof request.body?.orderReference === 'string' ? request.body.orderReference.trim() : ''
+    const hotel = await prisma.hotel.findFirst()
+    if (!hotel) { response.status(404).json({ message: 'No hotel has been configured.' }); return }
+    const order = existingReference
+      ? await prisma.order.findFirst({ where: { reference: existingReference, hotelId: hotel.id, paymentStatus: 'PENDING' }, include: { items: true } })
+      : (await createOrder(request.body)).order
+    if (!order) { response.status(404).json({ message: 'The order is no longer available for payment.' }); return }
     const payment = await prisma.payment.create({ data: { hotelId: hotel.id, orderId: order.id, provider: 'CHAPA', reference: order.reference, amount: order.total } })
     const chapaResponse = await fetch(`${chapaApiUrl}/transaction/initialize`, { method: 'POST', headers: { Authorization: `Bearer ${chapaSecretKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: Number(order.total).toFixed(2), currency: 'ETB', email: 'guest@hotel-menu.local', first_name: order.customerName || 'Guest', tx_ref: order.reference, callback_url: `${publicApiUrl}/api/payments/chapa/callback`, return_url: `${publicFrontendUrl}/payment-result?tx_ref=${encodeURIComponent(order.reference)}`, customization: { title: hotel.name, description: `Order ${order.reference}` } }) })
     const chapaData = await chapaResponse.json() as { status?: string; message?: string; data?: { checkout_url?: string } }

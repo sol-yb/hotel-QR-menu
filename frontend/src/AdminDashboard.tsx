@@ -472,6 +472,9 @@ function AdminDashboard() {
     if (!isAuthenticated) return
     if (activeTab === 'orders') void loadOrders().catch((error: unknown) => window.alert(error instanceof Error ? error.message : 'Unable to load orders.'))
     else void fetch(`${apiUrl}/api/admin/analytics/today`, { credentials: 'include' }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) setAnalytics(data) })
+    if (activeTab !== 'orders') return
+    const interval = window.setInterval(() => { void loadOrders() }, 10000)
+    return () => window.clearInterval(interval)
   }, [activeTab, isAuthenticated])
   const updateOrderStatus = async (id: string, status: string) => {
     const response = await fetch(`${apiUrl}/api/admin/orders/${id}/status`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })

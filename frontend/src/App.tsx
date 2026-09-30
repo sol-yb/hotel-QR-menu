@@ -60,6 +60,11 @@ type TranslationSet = {
   roomOrTable: string
   customerName: string
   payNow: string
+  submitOrder: string
+  orderSubmitted: string
+  orderReceived: string
+  orderReference: string
+  continuePayment: string
   startingPayment: string
   paymentFailed: string
   language: string
@@ -99,6 +104,11 @@ const translations: Record<LanguageCode, TranslationSet> = {
     roomOrTable: 'Room or table number',
     customerName: 'Your name',
     payNow: 'Pay with Chapa',
+    submitOrder: 'Submit order',
+    orderSubmitted: 'Order submitted successfully',
+    orderReceived: 'We have received your order. Our team will start preparing it shortly.',
+    orderReference: 'Order reference',
+    continuePayment: 'Continue to payment',
     startingPayment: 'Opening secure payment…',
     paymentFailed: 'Unable to start payment.',
     language: 'Language',
@@ -136,6 +146,11 @@ const translations: Record<LanguageCode, TranslationSet> = {
     roomOrTable: 'የክፍል ወይም የጠረጴዛ ቁጥር',
     customerName: 'ስምዎ',
     payNow: 'በChapa ይክፈሉ',
+    submitOrder: 'ትዕዛዝ ላክ',
+    orderSubmitted: 'ትዕዛዝዎ በተሳካ ሁኔታ ተልኳል',
+    orderReceived: 'ትዕዛዝዎ ደርሶናል። ቡድናችን በቅርቡ ማዘጋጀት ይጀምራል።',
+    orderReference: 'የትዕዛዝ መለያ',
+    continuePayment: 'ወደ ክፍያ ይቀጥሉ',
     startingPayment: 'የክፍያ ገጽ በመክፈት ላይ…',
     paymentFailed: 'ክፍያ መጀመር አልተቻለም።',
     language: 'ቋንቋ',
@@ -173,6 +188,11 @@ const translations: Record<LanguageCode, TranslationSet> = {
     roomOrTable: 'Lakkoofsa kutaa ykn minjaalaa',
     customerName: 'Maqaa kee',
     payNow: 'Chapa’n kaffali',
+    submitOrder: 'Ajaja galchi',
+    orderSubmitted: 'Ajajaan milkaa’inaan ergameera',
+    orderReceived: 'Ajaja keessan arganneerra. Gareen keenya yeroo gabaabaa keessatti qopheessuu jalqaba.',
+    orderReference: 'Wabii ajajaa',
+    continuePayment: 'Kaffaltiitti itti fufi',
     startingPayment: 'Kaffaltii nageenya qabu banuu…',
     paymentFailed: 'Kaffaltii jalqabsiisuu hin dandeenye.',
     language: 'Afaan',
@@ -255,6 +275,8 @@ function App() {
   const [customerNotes, setCustomerNotes] = useState('')
   const [isStartingPayment, setIsStartingPayment] = useState(false)
   const [paymentError, setPaymentError] = useState('')
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false)
+  const [submittedOrderReference, setSubmittedOrderReference] = useState('')
   const [verifiedPaymentStatus, setVerifiedPaymentStatus] = useState<'success' | 'failed' | 'checking'>('checking')
   const [tableContext, setTableContext] = useState<MenuResponse['table']>(null)
 
@@ -353,19 +375,25 @@ function App() {
         note: requestedNotes[id]?.trim() ?? '',
       },
     }))
+    setIsCartOpen(true)
+    setIsCheckoutOpen(true)
   }
 
-  const startPayment = async (event: FormEvent<HTMLFormElement>) => {
+  const apiBaseUrl = () => {
+    const configuredApiUrl = import.meta.env.VITE_API_URL?.trim()
+    return configuredApiUrl
+      ? configuredApiUrl.replace(/\/+$/, '')
+      : `${window.location.protocol}//${window.location.hostname}:3100`
+  }
+
+  const submitOrder = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setPaymentError('')
-    setIsStartingPayment(true)
+    setIsSubmittingOrder(true)
     try {
-      const configuredApiUrl = import.meta.env.VITE_API_URL?.trim()
-      const apiUrl = configuredApiUrl
-        ? configuredApiUrl.replace(/\/+$/, '')
-        : `${window.location.protocol}//${window.location.hostname}:3100`
-      const response = await fetch(`${apiUrl}/api/payments/chapa/initialize`, {
+      const response = await fetch(`${apiBaseUrl()}/api/orders`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           roomOrTable,
@@ -380,11 +408,32 @@ function App() {
           })),
         }),
       })
+      const data = await response.json() as { reference?: string; message?: string }
+      if (!response.ok || !data.reference) throw new Error(data.message || 'Unable to submit order.')
+      setSubmittedOrderReference(data.reference)
+    } catch (error: unknown) {
+      setPaymentError(error instanceof Error ? error.message : 'Unable to submit order.')
+    } finally {
+      setIsSubmittingOrder(false)
+    }
+  }
+
+  const startPayment = async () => {
+    if (!submittedOrderReference) return
+    setPaymentError('')
+    setIsStartingPayment(true)
+    try {
+      const response = await fetch(`${apiBaseUrl()}/api/payments/chapa/initialize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderReference: submittedOrderReference }),
+      })
       const data = await response.json() as { checkoutUrl?: string; message?: string }
       if (!response.ok || !data.checkoutUrl) throw new Error(data.message || t.paymentFailed)
       window.location.assign(data.checkoutUrl)
     } catch (error: unknown) {
       setPaymentError(error instanceof Error ? error.message : t.paymentFailed)
+    } finally {
       setIsStartingPayment(false)
     }
   }
@@ -587,17 +636,25 @@ function App() {
             )}
             {isCheckoutOpen && (
               <div className="cart-backdrop" role="presentation" onClick={() => setIsCheckoutOpen(false)}>
-                <form className="cart-panel checkout-form" onSubmit={startPayment} onClick={(event) => event.stopPropagation()}>
+                <form className="cart-panel checkout-form" onSubmit={submitOrder} onClick={(event) => event.stopPropagation()}>
                   <div className="cart-heading">
                     <div><p className="eyebrow accent">{t.checkout}</p><h2>{formatPrice(cartTotal)}</h2></div>
                     <button className="close-button" type="button" onClick={() => setIsCheckoutOpen(false)}>×</button>
                   </div>
-                  <label>{t.roomOrTable}<input value={roomOrTable} onChange={(event) => setRoomOrTable(event.target.value)} placeholder="e.g. Room 204" required readOnly={Boolean(tableContext)} /></label>
-                  <label>{t.customerName}<input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder={t.optional} /></label>
-                  <label>Phone (optional)<input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="+251..." /></label>
-                  <label>{t.note}<input value={customerNotes} onChange={(event) => setCustomerNotes(event.target.value)} placeholder={t.notePlaceholder} /></label>
+                  {!submittedOrderReference ? <>
+                    <label>{t.roomOrTable}<input value={roomOrTable} onChange={(event) => setRoomOrTable(event.target.value)} placeholder="e.g. Room 204" required readOnly={Boolean(tableContext)} /></label>
+                    <label>{t.customerName}<input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder={t.optional} /></label>
+                    <label>Phone (optional)<input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="+251..." /></label>
+                    <label>{t.note}<input value={customerNotes} onChange={(event) => setCustomerNotes(event.target.value)} placeholder={t.notePlaceholder} /></label>
+                  </> : <section className="order-success" aria-live="polite">
+                    <div className="success-icon" aria-hidden="true">✓</div>
+                    <h3>{t.orderSubmitted}</h3>
+                    <p>{t.orderReceived}</p>
+                    <strong>{t.orderReference}: {submittedOrderReference}</strong>
+                    <a href={`/track/${encodeURIComponent(submittedOrderReference)}`}>Track your order</a>
+                  </section>}
                   {paymentError && <p className="status-panel error">{paymentError}</p>}
-                  <button className="checkout-button" type="submit" disabled={isStartingPayment}>{isStartingPayment ? t.startingPayment : t.payNow}</button>
+                  {!submittedOrderReference ? <button className="checkout-button" type="submit" disabled={isSubmittingOrder}>{isSubmittingOrder ? 'Submitting order…' : t.submitOrder}</button> : <button className="checkout-button" type="button" onClick={() => void startPayment()} disabled={isStartingPayment}>{isStartingPayment ? t.startingPayment : t.continuePayment}</button>}
                 </form>
               </div>
             )}

@@ -17,6 +17,11 @@ export default function KitchenDashboard() {
     setOrders(await response.json())
   }
   useEffect(() => { fetch(`${apiUrl}/api/auth/staff/session`, { credentials: 'include' }).then((response) => response.json()).then((session) => { setAuthenticated(session.authenticated); if (session.authenticated) void load() }).catch(() => setAuthenticated(false)) }, [])
+  useEffect(() => {
+    if (!authenticated) return
+    const interval = window.setInterval(() => { void load() }, 10000)
+    return () => window.clearInterval(interval)
+  }, [authenticated])
   const signIn = async (event: React.FormEvent) => {
     event.preventDefault(); setError('')
     const response = await fetch(`${apiUrl}/api/auth/staff/login`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
