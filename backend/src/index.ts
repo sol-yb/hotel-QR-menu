@@ -181,7 +181,7 @@ app.post('/api/payments/chapa/initialize', paymentRateLimit, async (request, res
     const hotel = await prisma.hotel.findFirst()
     if (!hotel) { response.status(404).json({ message: 'No hotel has been configured.' }); return }
     const order = existingReference
-      ? await prisma.order.findFirst({ where: { reference: existingReference, hotelId: hotel.id, paymentStatus: 'PENDING' }, include: { items: true } })
+      ? await prisma.order.findFirst({ where: { reference: existingReference, hotelId: hotel.id, paymentStatus: { in: ['PENDING', 'FAILED'] } }, include: { items: true } })
       : (await createOrder(request.body)).order
     if (!order) { response.status(404).json({ message: 'The order is no longer available for payment.' }); return }
     const payment = await prisma.payment.upsert({
@@ -190,13 +190,15 @@ app.post('/api/payments/chapa/initialize', paymentRateLimit, async (request, res
       update: { status: 'PENDING', amount: order.total },
     })
     const chapaResponse = await fetch(`${chapaApiUrl}/transaction/initialize`, { method: 'POST', headers: { Authorization: `Bearer ${chapaSecretKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: Number(order.total).toFixed(2), currency: 'ETB', email: 'guest@hotel-menu.local', first_name: order.customerName || 'Guest', tx_ref: order.reference, callback_url: `${publicApiUrl}/api/payments/chapa/callback`, return_url: `${publicFrontendUrl}/payment-result?tx_ref=${encodeURIComponent(order.reference)}`, customization: { title: hotel.name, description: `Order ${order.reference}` } }) })
-    const chapaData = await chapaResponse.json() as { status?: string; message?: string; data?: { checkout_url?: string } }
+    const chapaData = await chapaResponse.json() as { status?: string; message?: string; error?: string; data?: { checkout_url?: string; message?: string } }
     if (!chapaResponse.ok || chapaData.status !== 'success' || !chapaData.data?.checkout_url) {
       await prisma.$transaction([
         prisma.order.update({ where: { id: order.id }, data: { paymentStatus: 'FAILED' } }),
         prisma.payment.update({ where: { id: payment.id }, data: { status: 'FAILED', rawResponse: chapaData } }),
       ])
-      response.status(502).json({ message: chapaData.message || 'Unable to initialize payment.' }); return
+      const providerMessage = chapaData.message || chapaData.error || chapaData.data?.message
+      console.error('Chapa initialization rejected:', chapaResponse.status, chapaData)
+      response.status(502).json({ message: providerMessage || `Chapa rejected the payment request (HTTP ${chapaResponse.status}).` }); return
     }
     await prisma.payment.update({ where: { id: payment.id }, data: { rawResponse: chapaData } })
     await prisma.order.update({ where: { id: order.id }, data: { paymentReference: order.reference } })
