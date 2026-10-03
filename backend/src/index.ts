@@ -13,6 +13,7 @@ const port = Number(process.env.PORT ?? 3100);
 const chapaApiUrl = 'https://api.chapa.co/v1';
 const publicApiUrl = process.env.PUBLIC_API_URL?.replace(/\/+$/, '');
 const publicFrontendUrl = (process.env.PUBLIC_FRONTEND_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
+const chapaPaymentEmail = process.env.CHAPA_PAYMENT_EMAIL ?? 'solomonyehualashet30@gmail.com';
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
@@ -189,7 +190,7 @@ app.post('/api/payments/chapa/initialize', paymentRateLimit, async (request, res
       create: { hotelId: hotel.id, orderId: order.id, provider: 'CHAPA', reference: order.reference, amount: order.total },
       update: { status: 'PENDING', amount: order.total },
     })
-    const chapaResponse = await fetch(`${chapaApiUrl}/transaction/initialize`, { method: 'POST', headers: { Authorization: `Bearer ${chapaSecretKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: Number(order.total).toFixed(2), currency: 'ETB', email: 'guest@hotel-menu.local', first_name: order.customerName || 'Guest', tx_ref: order.reference, callback_url: `${publicApiUrl}/api/payments/chapa/callback`, return_url: `${publicFrontendUrl}/payment-result?tx_ref=${encodeURIComponent(order.reference)}`, customization: { title: hotel.name, description: `Order ${order.reference}` } }) })
+    const chapaResponse = await fetch(`${chapaApiUrl}/transaction/initialize`, { method: 'POST', headers: { Authorization: `Bearer ${chapaSecretKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: Number(order.total).toFixed(2), currency: 'ETB', email: chapaPaymentEmail, first_name: order.customerName || 'Guest', tx_ref: order.reference, callback_url: `${publicApiUrl}/api/payments/chapa/callback`, return_url: `${publicFrontendUrl}/payment-result?tx_ref=${encodeURIComponent(order.reference)}`, customization: { title: hotel.name, description: `Order ${order.reference}` } }) })
     const chapaData = await chapaResponse.json() as { status?: string; message?: string; error?: string; data?: { checkout_url?: string; message?: string } }
     if (!chapaResponse.ok || chapaData.status !== 'success' || !chapaData.data?.checkout_url) {
       await prisma.$transaction([
