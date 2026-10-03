@@ -277,7 +277,7 @@ function App() {
   const [paymentError, setPaymentError] = useState('')
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false)
   const [submittedOrderReference, setSubmittedOrderReference] = useState('')
-  const [verifiedPaymentStatus, setVerifiedPaymentStatus] = useState<'success' | 'failed' | 'checking'>('checking')
+  const [verifiedPaymentStatus, setVerifiedPaymentStatus] = useState<'success' | 'failed' | 'pending' | 'checking'>('checking')
   const [tableContext, setTableContext] = useState<MenuResponse['table']>(null)
 
   const t = translations[language]
@@ -343,7 +343,7 @@ function App() {
     fetch(`${apiUrl}/api/payments/chapa/status/${encodeURIComponent(reference)}`)
       .then(async (response) => {
         if (!response.ok) throw new Error('Payment verification failed.')
-        return response.json() as Promise<{ status: 'success' | 'failed' }>
+        return response.json() as Promise<{ status: 'success' | 'failed' | 'pending' }>
       })
       .then((data) => setVerifiedPaymentStatus(data.status))
       .catch(() => setVerifiedPaymentStatus('failed'))
@@ -463,8 +463,8 @@ function App() {
   if (window.location.pathname === '/payment-result') {
     return (
       <main className="payment-result">
-        <h1>{verifiedPaymentStatus === 'checking' ? 'Verifying payment…' : verifiedPaymentStatus === 'success' ? 'Payment successful' : 'Payment not completed'}</h1>
-        <p>{verifiedPaymentStatus === 'success' ? 'Your order has been confirmed.' : verifiedPaymentStatus === 'checking' ? 'Please wait while we verify your transaction.' : 'Please try again or contact staff.'}</p>
+        <h1>{verifiedPaymentStatus === 'checking' || verifiedPaymentStatus === 'pending' ? 'Payment is being verified…' : verifiedPaymentStatus === 'success' ? 'Payment successful' : 'Payment not completed'}</h1>
+        <p>{verifiedPaymentStatus === 'success' ? 'Your order has been confirmed.' : verifiedPaymentStatus === 'checking' || verifiedPaymentStatus === 'pending' ? 'Chapa is still confirming the payment. Please check your order again in a moment.' : 'Please try again or contact staff.'}</p>
         <a href="/">Return to menu</a>
       </main>
     )

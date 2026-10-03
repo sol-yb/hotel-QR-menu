@@ -207,9 +207,11 @@ app.post('/api/payments/chapa/initialize', paymentRateLimit, async (request, res
   } catch (error) { response.status(400).json({ message: error instanceof Error ? error.message : 'Unable to initialize payment.' }) }
 })
 
-async function verifyChapa(reference: string) {
+type ChapaVerification = 'success' | 'failed' | 'pending'
+
+async function verifyChapa(reference: string): Promise<ChapaVerification> {
   const key = process.env.CHAPA_SECRET_KEY
-  if (!key) return false
+  if (!key) return 'failed'
   const result = await fetch(`${chapaApiUrl}/transaction/verify/${encodeURIComponent(reference)}`, { headers: { Authorization: `Bearer ${key}` } })
   const data = await result.json() as { status?: string; data?: { status?: string; tx_ref?: string; amount?: string | number; currency?: string } }
   const order = await prisma.order.findFirst({ where: { OR: [{ paymentReference: reference }, { reference }] }, select: { id: true, total: true, paymentReference: true } })
@@ -219,9 +221,24 @@ async function verifyChapa(reference: string) {
     && data.data.tx_ref === reference
     && data.data.currency === 'ETB'
     && Number(data.data.amount) === Number(order?.total)
-  await prisma.order.updateMany({ where: { id: order?.id, paymentReference: reference }, data: { paymentStatus: paid ? 'PAID' : 'FAILED', ...(paid ? { status: 'ACCEPTED' } : {}) } })
-  await prisma.payment.updateMany({ where: { reference }, data: { status: paid ? 'PAID' : 'FAILED', rawResponse: data } })
-  return paid
+  const providerStatus = data.data?.status?.toLowerCase()
+  const verification: ChapaVerification = paid
+    ? 'success'
+    : providerStatus === 'pending' || providerStatus === 'processing'
+      ? 'pending'
+      : 'failed'
+  await prisma.order.updateMany({
+    where: { id: order?.id, paymentReference: reference },
+    data: verification === 'success'
+      ? { paymentStatus: 'PAID', status: 'ACCEPTED' }
+      : verification === 'failed'
+        ? { paymentStatus: 'FAILED' }
+        : { paymentStatus: 'PENDING' },
+  })
+  if (verification !== 'pending') {
+    await prisma.payment.updateMany({ where: { reference }, data: { status: verification === 'success' ? 'PAID' : 'FAILED', rawResponse: data } })
+  }
+  return verification
 }
 app.post('/api/payments/chapa/webhook', async (request, response) => {
   const reference = typeof request.body?.tx_ref === 'string'
@@ -234,8 +251,8 @@ app.post('/api/payments/chapa/webhook', async (request, response) => {
     return
   }
   try {
-    const paid = await verifyChapa(reference)
-    response.status(paid ? 200 : 422).json({ status: paid ? 'success' : 'failed' })
+    const status = await verifyChapa(reference)
+    response.status(status === 'failed' ? 422 : 200).json({ status })
   } catch (error) {
     console.error('Chapa webhook verification failed:', error)
     response.status(502).json({ status: 'failed' })
@@ -244,10 +261,15 @@ app.post('/api/payments/chapa/webhook', async (request, response) => {
 app.all('/api/payments/chapa/callback', async (request, response) => {
   const reference = typeof request.query.tx_ref === 'string' ? request.query.tx_ref : typeof request.body?.tx_ref === 'string' ? request.body.tx_ref : ''
   if (!reference || !process.env.CHAPA_SECRET_KEY) { response.status(400).send('Missing payment reference.'); return }
-  try { const paid = await verifyChapa(reference); response.redirect(`${publicFrontendUrl}/payment-result?tx_ref=${encodeURIComponent(reference)}&status=${paid ? 'success' : 'failed'}`) } catch { response.redirect(`${publicFrontendUrl}/payment-result?tx_ref=${encodeURIComponent(reference)}&status=failed`) }
+  try {
+    const status = await verifyChapa(reference)
+    response.redirect(`${publicFrontendUrl}/payment-result?tx_ref=${encodeURIComponent(reference)}&status=${status}`)
+  } catch {
+    response.redirect(`${publicFrontendUrl}/payment-result?tx_ref=${encodeURIComponent(reference)}&status=failed`)
+  }
 })
 app.get('/api/payments/chapa/status/:reference', async (request, response) => {
-  try { response.json({ status: await verifyChapa(String(request.params.reference)) ? 'success' : 'failed' }) } catch { response.status(502).json({ status: 'failed' }) }
+  try { response.json({ status: await verifyChapa(String(request.params.reference)) }) } catch { response.status(502).json({ status: 'failed' }) }
 })
 app.get('/api/admin/menu', requireAdmin, async (_request, response) => {
   try {
