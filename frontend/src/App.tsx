@@ -255,6 +255,8 @@ function PaymentResult({ apiUrl }: { apiUrl: string }) {
     const [status, setStatus] = useState<'success' | 'failed' | 'pending' | 'checking'>('checking')
     const [message, setMessage] = useState('')
     const [uploading, setUploading] = useState(false)
+    const [receiptFile, setReceiptFile] = useState<File | null>(null)
+    const [order, setOrder] = useState<{ total: string; roomOrTable: string; items: { itemName: string; quantity: number; unitPrice: string }[] } | null>(null)
     useEffect(() => {
       if (!reference) { setStatus('failed'); return }
       fetch(`${apiUrl}/api/payments/chapa/status/${encodeURIComponent(reference)}`)
@@ -265,11 +267,26 @@ function PaymentResult({ apiUrl }: { apiUrl: string }) {
         .then((data) => setStatus(data.status))
         .catch(() => setStatus('failed'))
     }, [apiUrl, reference])
-    const uploadReceipt = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    useEffect(() => {
+      if (!reference) return
+      fetch(`${apiUrl}/api/orders/${encodeURIComponent(reference)}`)
+        .then((response) => response.ok ? response.json() as Promise<typeof order> : null)
+        .then((data) => setOrder(data))
+        .catch(() => setOrder(null))
+    }, [apiUrl, reference])
+    const selectReceipt = (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0]
       if (!file) return
       if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
         setMessage('Choose a JPG, PNG, or WEBP image up to 5 MB.')
+        return
+      }
+      setMessage('')
+      setReceiptFile(file)
+    }
+    const uploadReceipt = async () => {
+      if (!receiptFile) {
+        setMessage('Choose your payment screenshot first.')
         return
       }
       setUploading(true)
@@ -279,7 +296,7 @@ function PaymentResult({ apiUrl }: { apiUrl: string }) {
           const reader = new FileReader()
           reader.onload = () => resolve(String(reader.result))
           reader.onerror = () => reject(new Error('Unable to read the image.'))
-          reader.readAsDataURL(file)
+          reader.readAsDataURL(receiptFile)
         })
         const response = await fetch(`${apiUrl}/api/payments/${encodeURIComponent(reference)}/receipt`, {
           method: 'POST',
@@ -295,10 +312,40 @@ function PaymentResult({ apiUrl }: { apiUrl: string }) {
         setUploading(false)
       }
     }
+    const downloadReceipt = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 1200
+      canvas.height = 700
+      const context = canvas.getContext('2d')
+      if (!context) return
+      context.fillStyle = '#fffefa'
+      context.fillRect(0, 0, canvas.width, canvas.height)
+      context.fillStyle = '#242421'
+      context.font = '600 52px Georgia'
+      context.fillText('SYT Hotel Payment Receipt', 70, 110)
+      context.font = '32px DM Sans, sans-serif'
+      context.fillText(`Order reference: ${reference}`, 70, 200)
+      context.fillText(`Table / room: ${order?.roomOrTable ?? '—'}`, 70, 255)
+      context.fillText(`Payment status: ${status.toUpperCase()}`, 70, 305)
+      context.fillText(`Total paid: ETB ${order?.total ?? '—'}`, 70, 355)
+      context.font = '24px DM Sans, sans-serif'
+      order?.items.slice(0, 6).forEach((item, index) => {
+        context.fillText(`${item.quantity}× ${item.itemName} — ETB ${Number(item.unitPrice).toFixed(2)}`, 70, 415 + index * 34)
+      })
+      context.fillText('Keep this receipt for your order.', 70, 640)
+      const link = document.createElement('a')
+      link.download = `payment-receipt-${reference}.png`
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+    }
     return <main className="payment-result">
       <h1>{status === 'checking' || status === 'pending' ? 'Payment is being verified…' : status === 'success' ? 'Payment successful' : 'Payment not completed'}</h1>
       <p>{status === 'success' ? 'Your payment has been confirmed. Please send your receipt screenshot to the hotel team.' : status === 'checking' || status === 'pending' ? 'Chapa is still confirming the transaction. You can return here later.' : 'Please try again or contact staff.'}</p>
-      {reference && status === 'success' && <label className="receipt-upload">Upload payment screenshot<input type="file" accept="image/jpeg,image/png,image/webp" onChange={uploadReceipt} disabled={uploading} /></label>}
+      {reference && status === 'success' && <>
+        <button className="outline-button" type="button" onClick={downloadReceipt}>Download payment receipt</button>
+        <label className="receipt-upload">Choose Chapa screenshot<input type="file" accept="image/jpeg,image/png,image/webp" onChange={selectReceipt} disabled={uploading} /></label>
+        <button className="checkout-button" type="button" onClick={() => void uploadReceipt()} disabled={uploading || !receiptFile}>{uploading ? 'Sending screenshot…' : 'Send screenshot to admin'}</button>
+      </>}
       {message && <p className="status-panel">{message}</p>}
       <a href="/">Return to menu</a>
     </main>
