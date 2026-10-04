@@ -59,7 +59,7 @@ type AdminMenuResponse = {
     }[]
   }[]
 }
-type AdminOrder = { id: string; reference: string; roomOrTable: string; total: string; status: string; createdAt: string; items: { itemName: string; quantity: number }[] }
+type AdminOrder = { id: string; reference: string; roomOrTable: string; total: string; status: string; createdAt: string; items: { itemName: string; quantity: number }[]; payments?: { receiptImageUrl?: string | null }[] }
 type Analytics = { orders: number; revenue: string; byStatus: Record<string, number> }
 
 type LanguageCode = 'en' | 'am' | 'or'
@@ -815,7 +815,7 @@ function AdminDashboard() {
           <section className="admin-section menu-manager">
             <div className="section-heading"><div><p className="sidebar-label">ORDER OPERATIONS</p><h2>Orders & status</h2></div><button className="outline-button" type="button" onClick={() => void loadOrders()}>Refresh</button></div>
             {analytics && <div className="stats-grid">{Object.entries(analytics.byStatus).map(([status, count]) => <div className="stat-card" key={status}><small>{status}</small><strong>{count}</strong></div>)}</div>}
-            <div className="item-table">{orders.map((order) => <div className="item-row" key={order.id}><div><strong>{order.reference}</strong><small>{order.roomOrTable} · {order.items.map((item) => `${item.quantity}× ${item.itemName}`).join(', ')}</small></div><strong>ETB {Number(order.total).toFixed(2)}</strong><select value={order.status} onChange={(event) => void updateOrderStatus(order.id, event.target.value)}>{['PENDING','ACCEPTED','PREPARING','READY','COMPLETED','REJECTED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></div>)}</div>
+            <div className="item-table">{orders.map((order) => <div className="item-row" key={order.id}><div><strong>{order.reference}</strong><small>{order.roomOrTable} · {order.items.map((item) => `${item.quantity}× ${item.itemName}`).join(', ')}</small>{order.payments?.find((payment) => payment.receiptImageUrl)?.receiptImageUrl && <a href={order.payments.find((payment) => payment.receiptImageUrl)?.receiptImageUrl ?? '#'} target="_blank" rel="noreferrer">View payment receipt</a>}</div><strong>ETB {Number(order.total).toFixed(2)}</strong><select value={order.status} onChange={(event) => void updateOrderStatus(order.id, event.target.value)}>{['PENDING','ACCEPTED','PREPARING','READY','COMPLETED','REJECTED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></div>)}</div>
           </section>
         ) : (
           <section className="admin-section menu-manager">

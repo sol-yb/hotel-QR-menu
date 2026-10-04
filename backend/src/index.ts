@@ -17,7 +17,7 @@ const chapaPaymentEmail = process.env.CHAPA_PAYMENT_EMAIL ?? 'solomonyehualashet
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
-app.use(express.json());
+app.use(express.json({ limit: '8mb' }));
 const paymentRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20 });
 
 app.get('/api/health', (_request, response) => {
@@ -271,6 +271,43 @@ app.all('/api/payments/chapa/callback', async (request, response) => {
 app.get('/api/payments/chapa/status/:reference', async (request, response) => {
   try { response.json({ status: await verifyChapa(String(request.params.reference)) }) } catch { response.status(502).json({ status: 'failed' }) }
 })
+app.post('/api/payments/:reference/receipt', async (request, response) => {
+  const reference = String(request.params.reference)
+  const image = typeof request.body?.imageData === 'string' ? request.body.imageData : ''
+  const match = image.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/)
+  const storageUrl = process.env.SUPABASE_URL?.replace(/\/+$/, '')
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY
+  const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'payment-receipts'
+  if (!match || !storageUrl || !serviceKey) {
+    response.status(400).json({ message: 'A PNG, JPG, or WEBP receipt image and Supabase Storage configuration are required.' })
+    return
+  }
+  const order = await prisma.order.findUnique({ where: { reference }, select: { id: true } })
+  if (!order) { response.status(404).json({ message: 'Order not found.' }); return }
+  const bytes = Buffer.from(match[2], 'base64')
+  if (bytes.length > 5 * 1024 * 1024) { response.status(413).json({ message: 'Receipt image must be 5 MB or smaller.' }); return }
+  const extension = match[1] === 'image/jpeg' ? 'jpg' : match[1].slice('image/'.length)
+  const objectPath = `${reference}/${Date.now()}.${extension}`
+  try {
+    const upload = await fetch(`${storageUrl}/storage/v1/object/${encodeURIComponent(bucket)}/${objectPath}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey, 'Content-Type': match[1], 'x-upsert': 'true' },
+      body: bytes,
+    })
+    if (!upload.ok) {
+      const detail = await upload.text()
+      console.error('Supabase receipt upload failed:', detail)
+      response.status(502).json({ message: 'Unable to store the receipt image.' })
+      return
+    }
+    const receiptImageUrl = `${storageUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}/${objectPath}`
+    await prisma.payment.updateMany({ where: { reference }, data: { receiptImageUrl } })
+    response.json({ receiptImageUrl })
+  } catch (error) {
+    console.error('Receipt upload failed:', error)
+    response.status(502).json({ message: 'Unable to store the receipt image.' })
+  }
+})
 app.get('/api/admin/menu', requireAdmin, async (_request, response) => {
   try {
     const hotel = await prisma.hotel.findFirst({
@@ -476,7 +513,7 @@ const orderStatuses = ['PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'COMPLETED',
 app.get('/api/admin/orders', requireAdmin, async (_request, response) => {
   const hotel = await prisma.hotel.findFirst()
   if (!hotel) { response.status(404).json({ message: 'No hotel has been configured.' }); return }
-  const orders = await prisma.order.findMany({ where: { hotelId: hotel.id }, include: { items: true, table: true }, orderBy: { createdAt: 'desc' }, take: 100 })
+  const orders = await prisma.order.findMany({ where: { hotelId: hotel.id }, include: { items: true, table: true, payments: { select: { status: true, receiptImageUrl: true, reference: true } } }, orderBy: { createdAt: 'desc' }, take: 100 })
   response.json(orders.map((order) => ({ ...order, total: order.total.toString(), table: order.table ? { number: order.table.number, label: order.table.label } : null })))
 })
 app.patch('/api/admin/orders/:id/status', requireAdmin, async (request, response) => {

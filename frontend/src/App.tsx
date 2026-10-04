@@ -245,9 +245,65 @@ function OrderTracker({ apiUrl }: { apiUrl: string }) {
       setOrder(await response.json())
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to load order.') }
   }
+
   useEffect(() => { if (reference) void load() }, [])
   return <main className="payment-result"><h1>Track your order</h1><form onSubmit={load}><label>Order reference<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="SYT-..." required /></label><button className="checkout-button" type="submit">Check status</button></form>{error && <p className="status-panel error">{error}</p>}{order && <section className="status-panel"><h2>{order.status}</h2><p>Order {order.reference} · {order.roomOrTable}</p><p>Payment: {order.paymentStatus} · Total: ETB {order.total}</p></section>}</main>
 }
+
+function PaymentResult({ apiUrl }: { apiUrl: string }) {
+    const reference = new URLSearchParams(window.location.search).get('tx_ref') ?? ''
+    const [status, setStatus] = useState<'success' | 'failed' | 'pending' | 'checking'>('checking')
+    const [message, setMessage] = useState('')
+    const [uploading, setUploading] = useState(false)
+    useEffect(() => {
+      if (!reference) { setStatus('failed'); return }
+      fetch(`${apiUrl}/api/payments/chapa/status/${encodeURIComponent(reference)}`)
+        .then(async (response) => {
+          if (!response.ok) throw new Error('Payment verification failed.')
+          return response.json() as Promise<{ status: 'success' | 'failed' | 'pending' }>
+        })
+        .then((data) => setStatus(data.status))
+        .catch(() => setStatus('failed'))
+    }, [apiUrl, reference])
+    const uploadReceipt = async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      if (!file) return
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+        setMessage('Choose a JPG, PNG, or WEBP image up to 5 MB.')
+        return
+      }
+      setUploading(true)
+      setMessage('')
+      try {
+        const imageData = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(new Error('Unable to read the image.'))
+          reader.readAsDataURL(file)
+        })
+        const response = await fetch(`${apiUrl}/api/payments/${encodeURIComponent(reference)}/receipt`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageData }),
+        })
+        const data = await response.json() as { message?: string }
+        if (!response.ok) throw new Error(data.message || 'Unable to upload receipt.')
+        setMessage('Receipt sent to the hotel team successfully.')
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Unable to upload receipt.')
+      } finally {
+        setUploading(false)
+      }
+    }
+    return <main className="payment-result">
+      <h1>{status === 'checking' || status === 'pending' ? 'Payment is being verified…' : status === 'success' ? 'Payment successful' : 'Payment not completed'}</h1>
+      <p>{status === 'success' ? 'Your payment has been confirmed. Please send your receipt screenshot to the hotel team.' : status === 'checking' || status === 'pending' ? 'Chapa is still confirming the transaction. You can return here later.' : 'Please try again or contact staff.'}</p>
+      {reference && status === 'success' && <label className="receipt-upload">Upload payment screenshot<input type="file" accept="image/jpeg,image/png,image/webp" onChange={uploadReceipt} disabled={uploading} /></label>}
+      {message && <p className="status-panel">{message}</p>}
+      <a href="/">Return to menu</a>
+    </main>
+  }
+
 
 function App() {
   const [selectedCategory, setSelectedCategory] = useState('all')
@@ -275,9 +331,6 @@ function App() {
   const [customerNotes, setCustomerNotes] = useState('')
   const [isStartingPayment, setIsStartingPayment] = useState(false)
   const [paymentError, setPaymentError] = useState('')
-  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false)
-  const [submittedOrderReference, setSubmittedOrderReference] = useState('')
-  const [verifiedPaymentStatus, setVerifiedPaymentStatus] = useState<'success' | 'failed' | 'pending' | 'checking'>('checking')
   const [tableContext, setTableContext] = useState<MenuResponse['table']>(null)
 
   const t = translations[language]
@@ -329,26 +382,6 @@ function App() {
       .finally(() => setLoading(false))
   }, [language, t.menuUnavailable, t.unableLoadMenu])
 
-  useEffect(() => {
-    if (window.location.pathname !== '/payment-result') return
-    const reference = new URLSearchParams(window.location.search).get('tx_ref')
-    if (!reference) {
-      setVerifiedPaymentStatus('failed')
-      return
-    }
-    const configuredApiUrl = import.meta.env.VITE_API_URL?.trim()
-    const apiUrl = configuredApiUrl
-      ? configuredApiUrl.replace(/\/+$/, '')
-      : `${window.location.protocol}//${window.location.hostname}:3100`
-    fetch(`${apiUrl}/api/payments/chapa/status/${encodeURIComponent(reference)}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Payment verification failed.')
-        return response.json() as Promise<{ status: 'success' | 'failed' | 'pending' }>
-      })
-      .then((data) => setVerifiedPaymentStatus(data.status))
-      .catch(() => setVerifiedPaymentStatus('failed'))
-  }, [])
-
   const visibleItems = useMemo(
     () =>
       selectedCategory === 'all'
@@ -376,7 +409,6 @@ function App() {
       },
     }))
     setIsCartOpen(true)
-    setIsCheckoutOpen(true)
   }
 
   const apiBaseUrl = () => {
@@ -386,14 +418,13 @@ function App() {
       : `${window.location.protocol}//${window.location.hostname}:3100`
   }
 
-  const submitOrder = async (event: FormEvent<HTMLFormElement>) => {
+  const startPayment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setPaymentError('')
-    setIsSubmittingOrder(true)
+    setIsStartingPayment(true)
     try {
-      const response = await fetch(`${apiBaseUrl()}/api/orders`, {
+      const response = await fetch(`${apiBaseUrl()}/api/payments/chapa/initialize`, {
         method: 'POST',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           roomOrTable,
@@ -407,27 +438,6 @@ function App() {
             note: cart[item.id].note,
           })),
         }),
-      })
-      const data = await response.json() as { reference?: string; message?: string | { message?: string } }
-      const message = typeof data.message === 'string' ? data.message : data.message?.message
-      if (!response.ok || !data.reference) throw new Error(message || 'Unable to submit order.')
-      setSubmittedOrderReference(data.reference)
-    } catch (error: unknown) {
-      setPaymentError(error instanceof Error ? error.message : 'Unable to submit order.')
-    } finally {
-      setIsSubmittingOrder(false)
-    }
-  }
-
-  const startPayment = async () => {
-    if (!submittedOrderReference) return
-    setPaymentError('')
-    setIsStartingPayment(true)
-    try {
-      const response = await fetch(`${apiBaseUrl()}/api/payments/chapa/initialize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderReference: submittedOrderReference }),
       })
       const data = await response.json() as { checkoutUrl?: string; message?: string | { message?: string } }
       const message = typeof data.message === 'string' ? data.message : data.message?.message
@@ -461,13 +471,7 @@ function App() {
   }
 
   if (window.location.pathname === '/payment-result') {
-    return (
-      <main className="payment-result">
-        <h1>{verifiedPaymentStatus === 'checking' || verifiedPaymentStatus === 'pending' ? 'Payment is being verified…' : verifiedPaymentStatus === 'success' ? 'Payment successful' : 'Payment not completed'}</h1>
-        <p>{verifiedPaymentStatus === 'success' ? 'Your order has been confirmed.' : verifiedPaymentStatus === 'checking' || verifiedPaymentStatus === 'pending' ? 'Chapa is still confirming the payment. Please check your order again in a moment.' : 'Please try again or contact staff.'}</p>
-        <a href="/">Return to menu</a>
-      </main>
-    )
+    return <PaymentResult apiUrl={apiBaseUrl()} />
   }
 
   if (window.location.pathname === '/track' || window.location.pathname.startsWith('/track/')) {
@@ -512,12 +516,12 @@ function App() {
                 setIsCartOpen(true)
                 setIsCheckoutOpen(true)
               }}
-              disabled={cartCount === 0 && !submittedOrderReference}
+              disabled={cartCount === 0}
               aria-label="Open payment"
-              title={submittedOrderReference ? 'Continue payment' : `Pay ${formatPrice(cartTotal)}`}
+              title={`Pay ${formatPrice(cartTotal)}`}
             >
               <span aria-hidden="true">💳</span>
-              <span>{submittedOrderReference ? 'Pay now' : formatPrice(cartTotal)}</span>
+              <span>{formatPrice(cartTotal)}</span>
             </button>
           </div>
         </div>
@@ -647,30 +651,21 @@ function App() {
                 </div>
                 <div className="cart-total"><span>{t.total}</span><strong>{formatPrice(cartTotal)}</strong></div>
                 <button className="outline-button" type="button" onClick={() => setCart({})}>Clear cart</button>
-                <button className="checkout-button" type="button" onClick={() => setIsCheckoutOpen(true)}>{t.checkout}</button>
               </>
             )}
             {isCheckoutOpen && (
               <div className="cart-backdrop" role="presentation" onClick={() => setIsCheckoutOpen(false)}>
-                <form className="cart-panel checkout-form" onSubmit={submitOrder} onClick={(event) => event.stopPropagation()}>
+                <form className="cart-panel checkout-form" onSubmit={startPayment} onClick={(event) => event.stopPropagation()}>
                   <div className="cart-heading">
                     <div><p className="eyebrow accent">{t.checkout}</p><h2>{formatPrice(cartTotal)}</h2></div>
                     <button className="close-button" type="button" onClick={() => setIsCheckoutOpen(false)}>×</button>
                   </div>
-                  {!submittedOrderReference ? <>
-                    <label>{t.roomOrTable}<input value={roomOrTable} onChange={(event) => setRoomOrTable(event.target.value)} placeholder="e.g. Room 204" required readOnly={Boolean(tableContext)} /></label>
-                    <label>{t.customerName}<input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder={t.optional} /></label>
-                    <label>Phone (optional)<input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="+251..." /></label>
-                    <label>{t.note}<input value={customerNotes} onChange={(event) => setCustomerNotes(event.target.value)} placeholder={t.notePlaceholder} /></label>
-                  </> : <section className="order-success" aria-live="polite">
-                    <div className="success-icon" aria-hidden="true">✓</div>
-                    <h3>{t.orderSubmitted}</h3>
-                    <p>{t.orderReceived}</p>
-                    <strong>{t.orderReference}: {submittedOrderReference}</strong>
-                    <a href={`/track/${encodeURIComponent(submittedOrderReference)}`}>Track your order</a>
-                  </section>}
+                  <label>{t.roomOrTable}<input value={roomOrTable} onChange={(event) => setRoomOrTable(event.target.value)} placeholder="e.g. Room 204" required readOnly={Boolean(tableContext)} /></label>
+                  <label>{t.customerName}<input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder={t.optional} /></label>
+                  <label>Phone (optional)<input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="+251..." /></label>
+                  <label>{t.note}<input value={customerNotes} onChange={(event) => setCustomerNotes(event.target.value)} placeholder={t.notePlaceholder} /></label>
                   {paymentError && <p className="status-panel error">{paymentError}</p>}
-                  {!submittedOrderReference ? <button className="checkout-button" type="submit" disabled={isSubmittingOrder}>{isSubmittingOrder ? 'Submitting order…' : t.submitOrder}</button> : <button className="checkout-button" type="button" onClick={() => void startPayment()} disabled={isStartingPayment}>{isStartingPayment ? t.startingPayment : t.continuePayment}</button>}
+                  <button className="checkout-button" type="submit" disabled={isStartingPayment}>{isStartingPayment ? t.startingPayment : t.payNow}</button>
                 </form>
               </div>
             )}

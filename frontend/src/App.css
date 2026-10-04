@@ -630,6 +630,25 @@ footer {
   font-size: 13px;
 }
 
+.receipt-upload {
+  display: grid;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.receipt-upload input {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  text-transform: none;
+}
+
 .order-success {
   display: grid;
   justify-items: center;

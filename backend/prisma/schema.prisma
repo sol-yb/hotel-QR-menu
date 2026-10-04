@@ -146,6 +146,7 @@ model Payment {
   currency    String   @default("ETB")
   status      PaymentStatus @default(PENDING)
   rawResponse Json?
+  receiptImageUrl String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
