@@ -481,12 +481,6 @@ function AdminDashboard() {
     if (!response.ok) { window.alert('Unable to update order status.'); return }
     await loadOrders()
   }
-  const completedByTable = orders.filter((order) => order.status === 'COMPLETED').reduce<Record<string, AdminOrder[]>>((groups, order) => {
-    const table = order.roomOrTable || 'Unassigned'
-    groups[table] = [...(groups[table] ?? []), order]
-    return groups
-  }, {})
-
   const signIn = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setLoginError('')
@@ -821,21 +815,8 @@ function AdminDashboard() {
           <section className="admin-section menu-manager">
             <div className="section-heading"><div><p className="sidebar-label">ORDER OPERATIONS</p><h2>Orders & status</h2></div><button className="outline-button" type="button" onClick={() => void loadOrders()}>Refresh</button></div>
             {analytics && <div className="stats-grid">{Object.entries(analytics.byStatus).map(([status, count]) => <div className="stat-card" key={status}><small>{status}</small><strong>{count}</strong></div>)}</div>}
-            <div className="item-table">{orders.map((order) => <div className="item-row" key={order.id}><div><strong>{order.reference}</strong><small>{order.roomOrTable} · {order.items.map((item) => `${item.quantity}× ${item.itemName}`).join(', ')}</small>{order.payments?.find((payment) => payment.receiptImageUrl)?.receiptImageUrl && <a href={order.payments.find((payment) => payment.receiptImageUrl)?.receiptImageUrl ?? '#'} target="_blank" rel="noreferrer">View payment receipt</a>}</div><strong>ETB {Number(order.total).toFixed(2)}</strong><select value={order.status} onChange={(event) => void updateOrderStatus(order.id, event.target.value)}>{['PENDING','ACCEPTED','PREPARING','READY','COMPLETED','REJECTED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></div>)}</div>
-            <section className="completed-orders-module">
-              <div className="section-heading"><div><p className="sidebar-label">ARCHIVE</p><h2>Completed orders by table</h2></div></div>
-              {Object.keys(completedByTable).length === 0 && <p className="empty-state">No completed orders yet.</p>}
-              {Object.entries(completedByTable).map(([table, tableOrders]) => (
-                <article className="completed-table" key={table}>
-                  <h3>Table / room {table}</h3>
-                  {tableOrders.map((order) => <div className="completed-order" key={order.id}>
-                    <div><strong>{order.reference}</strong><small>{order.items.map((item) => `${item.quantity}× ${item.itemName} · ETB ${Number(item.unitPrice).toFixed(2)} each`).join(', ')}</small></div>
-                    <strong>ETB {Number(order.total).toFixed(2)}</strong>
-                    {order.payments?.find((payment) => payment.receiptImageUrl)?.receiptImageUrl && <a href={order.payments.find((payment) => payment.receiptImageUrl)?.receiptImageUrl ?? '#'} target="_blank" rel="noreferrer">View screenshot</a>}
-                  </div>)}
-                </article>
-              ))}
-            </section>
+            <div className="item-table">{orders.map((order) => <div className="item-row" key={order.id}><div><strong>{order.reference}</strong><small>{order.roomOrTable} · {order.items.map((item) => `${item.quantity}× ${item.itemName}`).join(', ')}</small></div><strong>ETB {Number(order.total).toFixed(2)}</strong><select value={order.status} onChange={(event) => void updateOrderStatus(order.id, event.target.value)}>{['PENDING','ACCEPTED','PREPARING','READY','COMPLETED','REJECTED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></div>)}</div>
+          </section>
         ) : activeTab === 'payments' ? (
             <section className="admin-section menu-manager">
               <div className="section-heading"><div><p className="sidebar-label">PAYMENT REPORTING</p><h2>Payment & reports</h2><p className="qr-description">Payment records grouped by order, including food prices and uploaded screenshots.</p></div><button className="outline-button" type="button" onClick={() => void loadOrders()}>Refresh</button></div>
@@ -855,7 +836,6 @@ function AdminDashboard() {
                 })}
               </div>
             </section>
-          </section>
         ) : (
           <section className="admin-section menu-manager">
             <div className="section-heading"><div><p className="sidebar-label">{t.catalogue}</p><h2>{t.menuItemsHeading}</h2></div><button className="primary-button" type="button" onClick={() => setShowItemForm(true)}>{t.addItem}</button></div>

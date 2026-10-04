@@ -89,12 +89,6 @@
   background: #29332d;
 }
 
-.completed-orders-module {
-  margin-top: 36px;
-  padding-top: 28px;
-  border-top: 1px solid #e1e6df;
-}
-
 .payment-report-table {
   overflow-x: auto;
   margin-top: 24px;
@@ -150,54 +144,6 @@
 
 .muted {
   color: #9aa39a;
-}
-
-.completed-table {
-  margin-top: 16px;
-  padding: 18px;
-  border: 1px solid #e1e6df;
-  border-radius: 10px;
-  background: #fff;
-}
-
-.completed-table h3 {
-  margin: 0 0 14px;
-  font-family: Georgia, serif;
-  font-weight: 400;
-}
-
-.completed-order {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 0;
-  border-top: 1px solid #eef0eb;
-}
-
-.completed-order > div {
-  display: grid;
-  gap: 4px;
-}
-
-.completed-order small {
-  color: #7d877d;
-}
-
-.completed-order a {
-  color: #536c55;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-@media (max-width: 680px) {
-  .completed-order {
-    grid-template-columns: 1fr auto;
-  }
-
-  .completed-order a {
-    grid-column: 1 / -1;
-  }
 }
 
 .admin-brand {
