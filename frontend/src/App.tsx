@@ -378,6 +378,9 @@ function App() {
   const [customerNotes, setCustomerNotes] = useState('')
   const [isStartingPayment, setIsStartingPayment] = useState(false)
   const [paymentError, setPaymentError] = useState('')
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false)
+  const [orderSubmitted, setOrderSubmitted] = useState('')
+  const [submittedOrderReference, setSubmittedOrderReference] = useState('')
   const [tableContext, setTableContext] = useState<MenuResponse['table']>(null)
 
   const t = translations[language]
@@ -456,6 +459,9 @@ function App() {
       },
     }))
     setIsCartOpen(true)
+    setIsCheckoutOpen(true)
+    setOrderSubmitted('')
+    setPaymentError('')
   }
 
   const apiBaseUrl = () => {
@@ -474,6 +480,7 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          orderReference: submittedOrderReference || undefined,
           roomOrTable,
           tableId: tableContext?.id,
           customerName,
@@ -494,6 +501,38 @@ function App() {
       setPaymentError(error instanceof Error ? error.message : t.paymentFailed)
     } finally {
       setIsStartingPayment(false)
+    }
+
+  }
+
+  const submitOrder = async () => {
+    setPaymentError('')
+    setIsSubmittingOrder(true)
+    try {
+      const response = await fetch(`${apiBaseUrl()}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomOrTable,
+          tableId: tableContext?.id,
+          customerName,
+          customerPhone,
+          customerNotes,
+          items: cartItems.map((item) => ({
+            id: item.id,
+            quantity: cart[item.id].quantity,
+            note: cart[item.id].note,
+          })),
+        }),
+      })
+      const data = await response.json() as { reference?: string; message?: string }
+      if (!response.ok || !data.reference) throw new Error(data.message || 'Unable to submit your order.')
+      setSubmittedOrderReference(data.reference)
+      setOrderSubmitted(data.reference)
+    } catch (error: unknown) {
+      setPaymentError(error instanceof Error ? error.message : 'Unable to submit your order.')
+    } finally {
+      setIsSubmittingOrder(false)
     }
   }
 
@@ -711,7 +750,9 @@ function App() {
                   <label>{t.customerName}<input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder={t.optional} /></label>
                   <label>Phone (optional)<input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="+251..." /></label>
                   <label>{t.note}<input value={customerNotes} onChange={(event) => setCustomerNotes(event.target.value)} placeholder={t.notePlaceholder} /></label>
+                  {orderSubmitted && <p className="status-panel">{t.orderSubmitted}. {t.orderReference}: <strong>{orderSubmitted}</strong></p>}
                   {paymentError && <p className="status-panel error">{paymentError}</p>}
+                  <button className="outline-button" type="button" onClick={() => void submitOrder()} disabled={isSubmittingOrder || cartItems.length === 0}>{isSubmittingOrder ? 'Submitting order…' : t.submitOrder}</button>
                   <button className="checkout-button" type="submit" disabled={isStartingPayment}>{isStartingPayment ? t.startingPayment : t.payNow}</button>
                 </form>
               </div>

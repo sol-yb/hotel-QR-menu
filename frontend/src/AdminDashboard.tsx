@@ -59,7 +59,7 @@ type AdminMenuResponse = {
     }[]
   }[]
 }
-type AdminOrder = { id: string; reference: string; roomOrTable: string; total: string; status: string; createdAt: string; items: { itemName: string; unitPrice: string | number; quantity: number }[]; payments?: { receiptImageUrl?: string | null }[] }
+type AdminOrder = { id: string; reference: string; roomOrTable: string; total: string; status: string; paymentStatus: string; createdAt: string; items: { itemName: string; unitPrice: string | number; quantity: number }[]; payments?: { receiptImageUrl?: string | null }[] }
 type Analytics = { orders: number; revenue: string; byStatus: Record<string, number> }
 
 type LanguageCode = 'en' | 'am' | 'or'
@@ -392,7 +392,7 @@ const initialCategories: AdminCategory[] = []
 function AdminDashboard() {
   const [categories, setCategories] = useState(initialCategories)
   const [items, setItems] = useState<AdminItem[]>([])
-  const [activeTab, setActiveTab] = useState<'overview' | 'menu' | 'orders'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'menu' | 'orders' | 'payments'>('overview')
   const [orders, setOrders] = useState<AdminOrder[]>([])
   const [analytics, setAnalytics] = useState<Analytics | null>(null)
   const [showItemForm, setShowItemForm] = useState(false)
@@ -470,9 +470,9 @@ function AdminDashboard() {
   }
   useEffect(() => {
     if (!isAuthenticated) return
-    if (activeTab === 'orders') void loadOrders().catch((error: unknown) => window.alert(error instanceof Error ? error.message : 'Unable to load orders.'))
+    if (activeTab === 'orders' || activeTab === 'payments') void loadOrders().catch((error: unknown) => window.alert(error instanceof Error ? error.message : 'Unable to load orders.'))
     else void fetch(`${apiUrl}/api/admin/analytics/today`, { credentials: 'include' }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) setAnalytics(data) })
-    if (activeTab !== 'orders') return
+    if (activeTab !== 'orders' && activeTab !== 'payments') return
     const interval = window.setInterval(() => { void loadOrders() }, 10000)
     return () => window.clearInterval(interval)
   }, [activeTab, isAuthenticated])
@@ -755,6 +755,7 @@ function AdminDashboard() {
             <span>☷</span> {t.menu}
           </button>
           <button className={activeTab === 'orders' ? 'selected' : ''} type="button" onClick={() => setActiveTab('orders')}><span>◷</span> {t.orders}</button>
+          <button className={activeTab === 'payments' ? 'selected' : ''} type="button" onClick={() => setActiveTab('payments')}><span>▤</span> Payment & reports</button>
           <button type="button" disabled><span>♙</span> {t.team} <em>{t.comingSoon}</em></button>
         </nav>
         <div className="sidebar-bottom">
@@ -767,7 +768,7 @@ function AdminDashboard() {
         <header className="admin-header">
           <div>
             <p className="sidebar-label">{t.adminGreeting}</p>
-            <h1>{activeTab === 'overview' ? t.overview : activeTab === 'orders' ? t.orders : t.menuManagement}</h1>
+            <h1>{activeTab === 'overview' ? t.overview : activeTab === 'orders' ? t.orders : activeTab === 'payments' ? 'Payment & reports' : t.menuManagement}</h1>
           </div>
           <div className="admin-header-actions">
             <div className="language-switcher admin-language-switcher" aria-label={t.language}>
@@ -834,6 +835,25 @@ function AdminDashboard() {
                   </div>)}
                 </article>
               ))}
+            </section>
+        ) : activeTab === 'payments' ? (
+            <section className="admin-section menu-manager">
+              <div className="section-heading"><div><p className="sidebar-label">PAYMENT REPORTING</p><h2>Payment & reports</h2><p className="qr-description">Payment records grouped by order, including food prices and uploaded screenshots.</p></div><button className="outline-button" type="button" onClick={() => void loadOrders()}>Refresh</button></div>
+              <div className="payment-report-table">
+                <div className="payment-report-row payment-report-header"><span>Order reference</span><span>Table / room</span><span>Payment status</span><span>Total paid</span><span>Ordered food and unit prices</span><span>Screenshot</span></div>
+                {orders.length === 0 && <p className="empty-state">No payment records found.</p>}
+                {orders.map((order) => {
+                  const receipt = order.payments?.find((payment) => payment.receiptImageUrl)?.receiptImageUrl
+                  return <div className="payment-report-row" key={order.id}>
+                    <strong>{order.reference}</strong>
+                    <span>{order.roomOrTable || '—'}</span>
+                    <span><b className={`payment-status payment-${order.paymentStatus.toLowerCase()}`}>{order.paymentStatus}</b></span>
+                    <strong>ETB {Number(order.total).toFixed(2)}</strong>
+                    <span>{order.items.map((item) => `${item.quantity}× ${item.itemName} · ETB ${Number(item.unitPrice).toFixed(2)}`).join(', ')}</span>
+                    {receipt ? <a href={receipt} target="_blank" rel="noreferrer">View screenshot</a> : <span className="muted">Not uploaded</span>}
+                  </div>
+                })}
+              </div>
             </section>
           </section>
         ) : (

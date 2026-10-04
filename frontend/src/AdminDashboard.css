@@ -95,6 +95,63 @@
   border-top: 1px solid #e1e6df;
 }
 
+.payment-report-table {
+  overflow-x: auto;
+  margin-top: 24px;
+  border: 1px solid #e1e6df;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.payment-report-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(110px, .8fr) minmax(120px, .8fr) minmax(110px, .7fr) minmax(260px, 1.8fr) minmax(110px, .7fr);
+  gap: 14px;
+  align-items: center;
+  min-width: 920px;
+  padding: 14px 16px;
+  border-top: 1px solid #eef0eb;
+  font-size: 13px;
+}
+
+.payment-report-row:first-child {
+  border-top: 0;
+}
+
+.payment-report-header {
+  background: #f5f7f2;
+  color: #687368;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.payment-report-row a {
+  color: #536c55;
+  font-weight: 700;
+}
+
+.payment-status {
+  display: inline-block;
+  width: fit-content;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #edf2ec;
+  color: #536c55;
+  font-size: 10px;
+  letter-spacing: .05em;
+}
+
+.payment-failed {
+  background: #fae9e6;
+  color: #a24d41;
+}
+
+.muted {
+  color: #9aa39a;
+}
+
 .completed-table {
   margin-top: 16px;
   padding: 18px;
